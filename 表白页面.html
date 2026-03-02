@@ -1,0 +1,122 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表白页面</title>
+    <style>
+        body {
+            font-family: "Noto Sans CJK JP", sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #ffafbd, #ffc3a0);
+            margin: 0;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            max-width: 500px;
+            width: 80%;
+        }
+        h1 {
+            color: #ff6b6b;
+            font-size: 2.5em;
+            margin-bottom: 30px;
+        }
+        .question {
+            font-size: 1.8em;
+            margin: 30px 0;
+            color: #333;
+        }
+        .buttons {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+        button {
+            font-family: "Noto Sans CJK JP", sans-serif;
+            font-size: 1.2em;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+        #yesBtn {
+            background-color: #ff6b6b;
+            color: white;
+        }
+        #noBtn {
+            background-color: #4ecdc4;
+            color: white;
+        }
+        button:hover {
+            transform: scale(1.05);
+        }
+        .message {
+            font-size: 1.5em;
+            margin-top: 30px;
+            min-height: 60px;
+        }
+        .hearts {
+            font-size: 2em;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>❤️ 表白页面 ❤️</h1>
+        <div class="hearts">💖💘💝💗💓💞</div>
+        <div class="question">你愿意跟我白头偕老吗？</div>
+        <div class="buttons">
+            <button id="yesBtn" onclick="sayYes()">同意</button>
+            <button id="noBtn" onclick="sayNo()">不同意</button>
+        </div>
+        <div class="message" id="message"></div>
+    </div>
+
+    <script>
+        let noCount = 0;
+        const noBtn = document.getElementById('noBtn');
+        const message = document.getElementById('message');
+
+        function sayYes() {
+            message.innerHTML = "<span style='color:#ff6b6b; font-size:1.8em;'>太好了！我就知道你会同意的！❤️</span><br>我们永远在一起！";
+            noBtn.style.display = 'none';
+            // 添加庆祝效果
+            document.body.style.background = 'linear-gradient(135deg, #a18cd1, #fbc2eb)';
+        }
+
+        function sayNo() {
+            noCount++;
+
+            if (noCount === 1) {
+                message.innerHTML = "别着急拒绝嘛~再考虑一下？";
+                noBtn.style.transform = "scale(0.8)";
+            } else if (noCount === 2) {
+                message.innerHTML = "你确定吗？再想想看？";
+                noBtn.style.transform = "scale(0.6)";
+            } else if (noCount === 3) {
+                message.innerHTML = "真的不再考虑一下吗？";
+                noBtn.style.transform = "scale(0.4)";
+            } else if (noCount === 4) {
+                message.innerHTML = "最后一次机会哦~";
+                noBtn.style.transform = "scale(0.2)";
+            } else {
+                // 第五次点击后隐藏"不同意"按钮
+                noBtn.style.display = 'none';
+                message.innerHTML = "看来你已经没有选择了 😉<br>现在只剩下同意啦！";
+            }
+        }
+    </script>
+</body>
+</html>
