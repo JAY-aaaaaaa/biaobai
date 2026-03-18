@@ -18,6 +18,7 @@ DEFAULT_CSV_DIR = BASE_DIR / "csv"
 DEFAULT_FENCES_PATH = BASE_DIR / "port_fences.json"
 DEFAULT_DETAIL_PATH = DEFAULT_CSV_DIR / "detail_output.csv"
 DEFAULT_SUMMARY_PATH = DEFAULT_CSV_DIR / "result.json"
+DEFAULT_ERROR_LOG_PATH = DEFAULT_CSV_DIR / "error_log.txt"
 DEFAULT_INPUT_CSV_NAME = "input.csv"
 BASE_REQUIRED_COLUMNS = {
     "vin",
@@ -131,6 +132,11 @@ def parse_args() -> argparse.Namespace:
         default=str(DEFAULT_SUMMARY_PATH),
         help="输出汇总 JSON 文件路径，默认写入脚本同级 csv/result.json",
     )
+    parser.add_argument(
+        "--error-log",
+        default=str(DEFAULT_ERROR_LOG_PATH),
+        help="脏数据日志输出路径，默认写入脚本同级 csv/error_log.txt",
+    )
     return parser.parse_args()
 
 
@@ -194,6 +200,10 @@ def parse_float(row: dict[str, str], column: str, row_number: int) -> float:
         ) from exc
 
 
+def format_dirty_row_message(row_number: int, error: AnalysisError, row: dict[str, str]) -> str:
+    return f"第 {row_number} 行已丢弃，原因: {error}，原始数据: {json.dumps(row, ensure_ascii=False)}"
+
+
 def point_fence_id(point: tuple[float, float], fences: list[Fence]) -> str:
     for fence in fences:
         if point_in_polygon_ray_casting(point, fence.points):
@@ -227,6 +237,7 @@ def build_summary(
     detail_rows: list[DetailRow],
     csv_path: str | Path,
     fences_path: str | Path,
+    dropped_rows_count: int = 0,
 ) -> dict:
     vins = sorted({row.vin for row in detail_rows if row.vin})
     timestamps = [normalize_time(row.clctm) for row in detail_rows if row.clctm]
@@ -237,7 +248,9 @@ def build_summary(
     return {
         "csv_file": str(csv_path),
         "fences_file": str(fences_path),
-        "total_points": len(detail_rows),
+        "total_points": len(detail_rows) + dropped_rows_count,
+        "processed_points": len(detail_rows),
+        "dropped_dirty_rows": dropped_rows_count,
         "in_fence_points": len(in_fence_rows),
         "negative_pressure_points_in_fence": len(negative_in_fence_rows),
         "negative_pressure_ratio_in_fence": safe_ratio(
@@ -257,9 +270,10 @@ def analyze(
     csv_path: str | Path,
     fences_path: str | Path,
     time_column: str | None = None,
-) -> tuple[list[DetailRow], dict]:
+) -> tuple[list[DetailRow], dict, list[str]]:
     fences = load_fences(fences_path)
     detail_rows: list[DetailRow] = []
+    dirty_row_messages: list[str] = []
 
     with open(csv_path, "r", encoding="utf-8-sig", newline="") as file:
         reader = csv.DictReader(file)
@@ -267,16 +281,20 @@ def analyze(
         validate_headers(reader.fieldnames, resolved_time_column)
 
         for row_number, row in enumerate(reader, start=2):
-            vin = (row.get("vin") or "").strip()
-            clctm = (row.get(resolved_time_column) or "").strip()
-            lon = parse_float(row, "mdt_po_lon", row_number)
-            lat = parse_float(row, "mdt_po_lat", row_number)
-            asmod_pintmnf = parse_float(row, "asmod_pintmnf", row_number)
-            envp_p = parse_float(row, "envp_p", row_number)
-            pressure_diff = asmod_pintmnf - envp_p
-            fence_id = point_fence_id((lon, lat), fences)
-            in_fence = bool(fence_id)
-            negative_pressure = is_negative_pressure(asmod_pintmnf, envp_p)
+            try:
+                vin = (row.get("vin") or "").strip()
+                clctm = (row.get(resolved_time_column) or "").strip()
+                lon = parse_float(row, "mdt_po_lon", row_number)
+                lat = parse_float(row, "mdt_po_lat", row_number)
+                asmod_pintmnf = parse_float(row, "asmod_pintmnf", row_number)
+                envp_p = parse_float(row, "envp_p", row_number)
+                pressure_diff = asmod_pintmnf - envp_p
+                fence_id = point_fence_id((lon, lat), fences)
+                in_fence = bool(fence_id)
+                negative_pressure = is_negative_pressure(asmod_pintmnf, envp_p)
+            except AnalysisError as exc:
+                dirty_row_messages.append(format_dirty_row_message(row_number, exc, row))
+                continue
 
             detail_rows.append(
                 DetailRow(
@@ -293,7 +311,12 @@ def analyze(
                 )
             )
 
-    return detail_rows, build_summary(detail_rows, csv_path, fences_path)
+    return detail_rows, build_summary(
+        detail_rows,
+        csv_path,
+        fences_path,
+        dropped_rows_count=len(dirty_row_messages),
+    ), dirty_row_messages
 
 
 def write_detail_csv(path: str | Path, detail_rows: list[DetailRow]) -> None:
@@ -340,13 +363,30 @@ def write_summary_json(path: str | Path, summary: dict) -> None:
         json.dump(summary, file, ensure_ascii=False, indent=2)
 
 
+def write_error_log(path: str | Path, dirty_row_messages: list[str]) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as file:
+        if dirty_row_messages:
+            file.write("\n".join(dirty_row_messages))
+            file.write("\n")
+        else:
+            file.write("未发现脏数据。\n")
+
+
 def main() -> int:
     args = parse_args()
     csv_path = args.csv or discover_default_csv_path()
-    detail_rows, summary = analyze(csv_path, args.fences, time_column=args.time_column)
+    detail_rows, summary, dirty_row_messages = analyze(
+        csv_path,
+        args.fences,
+        time_column=args.time_column,
+    )
     write_detail_csv(args.output_detail, detail_rows)
     write_summary_json(args.output_summary, summary)
+    write_error_log(args.error_log, dirty_row_messages)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    print(f"error_log_file: {args.error_log}")
     return 0
 
 
